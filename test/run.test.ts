@@ -1,32 +1,27 @@
-import Stream from "stream";
-import path = require("path");
+import path from "node:path";
 
 import request from "supertest";
-import { sign } from "@octokit/webhooks";
+import { sign } from "@octokit/webhooks-methods";
+import { describe, expect, it, beforeEach } from "vitest";
 
-import { Probot, run, Server } from "../src";
+import { Probot, run, Server } from "../src/index.js";
 
-// tslint:disable:no-empty
+import { captureLogOutput } from "./helpers/capture-log-output.js";
+import WebhookExamples, {
+  type WebhookDefinition,
+} from "@octokit/webhooks-examples";
+
 describe("run", () => {
   let server: Server;
-  let output: any;
   let env: NodeJS.ProcessEnv;
 
-  const streamLogsToOutput = new Stream.Writable({ objectMode: true });
-  streamLogsToOutput._write = (object, encoding, done) => {
-    output.push(JSON.parse(object));
-    done();
-  };
-
   beforeEach(() => {
-    // Clear log output
-    output = [];
     env = {
       APP_ID: "1",
       PRIVATE_KEY_PATH: path.join(
         __dirname,
         "fixtures",
-        "test-private-key.pem"
+        "test-private-key.pem",
       ),
       WEBHOOK_PROXY_URL: "https://smee.io/EfHXC9BFfGAxbM6J",
       WEBHOOK_SECRET: "secret",
@@ -42,7 +37,7 @@ describe("run", () => {
         () => {
           initialized = true;
         },
-        { env }
+        { env },
       );
       expect(initialized).toBeTruthy();
       await server.stop();
@@ -66,10 +61,10 @@ describe("run", () => {
 
       return new Promise(async (resolve) => {
         server = await run(
-          (app: Probot) => {
+          (_app: Probot) => {
             initialized = true;
           },
-          { env }
+          { env },
         );
         expect(initialized).toBeFalsy();
         await server.stop();
@@ -77,19 +72,43 @@ describe("run", () => {
         resolve(null);
       });
     });
+
+    it("defaults to JSON logs if NODE_ENV is set to 'production'", async () => {
+      let outputData = "";
+      env.NODE_ENV = "production";
+
+      server = await run(
+        async (app) => {
+          outputData = await captureLogOutput(async () => {
+            app.log.fatal("test");
+          }, app.log);
+        },
+        { env },
+      );
+      await server.stop();
+
+      expect(outputData).toMatch(/"msg":"test"/);
+    });
   });
 
   describe("webhooks", () => {
-    it("POST /", async () => {
+    const pushEvent = (
+      (WebhookExamples as unknown as WebhookDefinition[]).filter(
+        (event) => event.name === "push",
+      )[0] as WebhookDefinition<"push">
+    ).examples[0];
+
+    it("POST /api/github/webhooks", async () => {
       server = await run(() => {}, { env });
 
-      const dataString = require("./fixtures/webhook/push.json");
+      const dataString = JSON.stringify(pushEvent);
 
       await request(server.expressApp)
-        .post("/")
+        .post("/api/github/webhooks")
         .send(dataString)
+        .set("content-type", "application/json")
         .set("x-github-event", "push")
-        .set("x-hub-signature", sign("secret", dataString))
+        .set("x-hub-signature-256", await sign("secret", dataString))
         .set("x-github-delivery", "123")
         .expect(200);
 
@@ -100,22 +119,24 @@ describe("run", () => {
       server = await run(() => {}, {
         env: {
           ...env,
-          WEBHOOK_SECRET: "secret",
           WEBHOOK_PATH: "/custom-webhook",
         },
       });
 
-      const dataString = require("./fixtures/webhook/push.json");
+      const dataString = JSON.stringify(pushEvent);
 
-      await request(server.expressApp)
-        .post("/custom-webhook")
-        .send(dataString)
-        .set("x-github-event", "push")
-        .set("x-hub-signature", sign("secret", dataString))
-        .set("x-github-delivery", "123")
-        .expect(200);
-
-      await server.stop();
+      try {
+        await request(server.expressApp)
+          .post("/custom-webhook")
+          .send(dataString)
+          .set("content-type", "application/json")
+          .set("x-github-event", "push")
+          .set("x-hub-signature-256", await sign("secret", dataString))
+          .set("x-github-delivery", "123")
+          .expect(200);
+      } finally {
+        await server.stop();
+      }
     });
   });
 });

@@ -1,5 +1,6 @@
 ---
-next: docs/development.md
+next: development
+title: Hello World
 ---
 
 # Hello world
@@ -7,17 +8,17 @@ next: docs/development.md
 A Probot app is just a [Node.js module](https://nodejs.org/api/modules.html) that exports a function:
 
 ```js
-module.exports = (app) => {
+export default (app) => {
   // your code here
 };
 ```
 
-The `app` parameter is an instance of [`Probot`](https://probot.github.io/api/latest/classes/probot.html) and gives you access to all of the GitHub goodness.
+The `app` parameter is an instance of [`Probot`](https://probot.github.io/api/latest/classes/probot.Probot.html) and gives you access to all of the GitHub goodness.
 
-`app.on` will listen for any [webhook events triggered by GitHub](./webhooks.md), which will notify you when anything interesting happens on GitHub that your app wants to know about.
+`app.on` will listen for any [webhook events triggered by GitHub](/docs/webhooks/), which will notify you when anything interesting happens on GitHub that your app wants to know about.
 
 ```js
-module.exports = (app) => {
+export default (app) => {
   app.on("issues.opened", async (context) => {
     // A new issue was opened, what should we do with it?
     context.log.info(context.payload);
@@ -25,12 +26,12 @@ module.exports = (app) => {
 };
 ```
 
-The `context` passed to the event handler includes everything about the event that was triggered, as well as some helpful properties for doing something useful in response to the event. `context.octokit` is an authenticated GitHub client that can be used to [make API calls](./github-api.md), and allows you to do almost anything programmatically that you can do through a web browser on GitHub.
+The [`context`](https://probot.github.io/api/latest/classes/context.Context.html) passed to the event handler includes everything about the event that was triggered, as well as some helpful properties for doing something useful in response to the event. `context.octokit` is an authenticated GitHub client that can be used to [make REST API and GraphQL calls](/docs/github-api), and allows you to do almost anything programmatically that you can do through a web browser on GitHub.
 
 Here is an example of an autoresponder app that comments on opened issues:
 
 ```js
-module.exports = (app) => {
+export default (app) => {
   app.on("issues.opened", async (context) => {
     // `context` extracts information from the event, which can be passed to
     // GitHub API calls. This will return:
@@ -43,7 +44,7 @@ module.exports = (app) => {
 };
 ```
 
-To get started, you can use the instructions for [Developing an App](./development.md) or remix this 'Hello World' project on Glitch:
+To get started, you can use the instructions for [Developing an App](/docs/development/) or remix this 'Hello World' project on Glitch:
 
 [![Remix on Glitch](https://cdn.glitch.com/2703baf2-b643-4da7-ab91-7ee2a2d00b5b%2Fremix-button.svg)](https://glitch.com/edit/#!/remix/probot-hello-world)
 

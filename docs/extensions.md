@@ -1,10 +1,19 @@
 ---
-next: docs/configuration.md
+next: persistence
+title: Extensions
 ---
 
 # Extensions
 
 While Probot doesn't have an official extension API, there are a handful of reusable utilities that have been extracted from existing apps.
+
+<!-- toc -->
+
+- [Commands](#commands)
+- [Metadata](#metadata)
+- [Attachments](#attachments)
+
+<!-- tocstop -->
 
 ## Commands
 
@@ -13,9 +22,9 @@ While Probot doesn't have an official extension API, there are a handful of reus
 For example, users could add labels from comments by typing `/label in-progress`.
 
 ```js
-const commands = require("probot-commands");
+import commands from "probot-commands";
 
-module.exports = (app) => {
+export default (app) => {
   // Type `/label foo, bar` in a comment box for an Issue or Pull Request
   commands(app, "label", (context, command) => {
     const labels = command.arguments.split(/, */);
@@ -31,9 +40,9 @@ module.exports = (app) => {
 For example, here is a contrived app that stores the number of times that comments were edited in a discussion and comments with the edit count when the issue is closed.
 
 ```js
-const metadata = require("probot-metadata");
+import metadata from "probot-metadata";
 
-module.exports = (app) => {
+export default (app) => {
   app.on(["issues.edited", "issue_comment.edited"], async (context) => {
     const kv = await metadata(context);
     await kv.set("edits", (await kv.get("edits")) || 1);
@@ -44,7 +53,7 @@ module.exports = (app) => {
     context.octokit.issues.createComment(
       context.issue({
         body: `There were ${edits} edits to issues in this thread.`,
-      })
+      }),
     );
   });
 };
@@ -55,9 +64,9 @@ module.exports = (app) => {
 [probot-attachments](https://github.com/probot/attachments) adds message attachments to comments on GitHub. This extension should be used any time an app is appending content to user comments.
 
 ```js
-const attachments = require("probot-attachments");
+import attachments from "probot-attachments";
 
-module.exports = (app) => {
+export default (app) => {
   app.on("issue_comment.created", (context) => {
     return attachments(context).add({
       title: "Hello World",
@@ -68,7 +77,3 @@ module.exports = (app) => {
 ```
 
 Check out [probot/unfurl](https://github.com/probot/unfurl) to see it in action.
-
-## Community Created Extensions
-
-[probot-messages](https://github.com/dessant/probot-messages) was created by [@dessant](https://github.com/dessant) to deliver messages that require user action to ensure the correct operation of the app.
