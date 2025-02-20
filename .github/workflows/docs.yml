@@ -3,22 +3,23 @@ on:
   push:
     branches:
       - master
-    tags:
-      # TODO: only update docs for tags that match npm's @latest version
-      - v10.*
-
 jobs:
   docs:
     name: docs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - name: Check out repository
+        uses: actions/checkout@v4
       - run: git fetch --depth=20 origin +refs/tags/*:refs/tags/*
-      - uses: actions/setup-node@v1
+      - uses: actions/setup-node@v4
         with:
-          node-version: 12
-      - run: npm ci
-      - run: npm run build
-      - run: ./script/publish-docs
+          node-version: lts/*
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build probot
+        run: npm run build
+      - name: Publish documentation
+        run: ./script/publish-docs
         env:
           OCTOKITBOT_PAT: ${{ secrets.OCTOKITBOT_PAT }}

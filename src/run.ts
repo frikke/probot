@@ -1,17 +1,21 @@
 import pkgConf from "pkg-conf";
 
-import { ApplicationFunction, Options, ServerOptions } from "./types";
-import { Probot } from "./index";
-import { setupAppFactory } from "./apps/setup";
-import { getLog, GetLogOptions } from "./helpers/get-log";
-import { readCliOptions } from "./bin/read-cli-options";
-import { readEnvOptions } from "./bin/read-env-options";
-import { Server } from "./server/server";
-import { defaultApp } from "./apps/default";
-import { resolveAppFunction } from "./helpers/resolve-app-function";
+import type { ApplicationFunction, Options, ServerOptions } from "./types.js";
+import { Logger, Probot, ProbotOctokit } from "./index.js";
+import { setupAppFactory } from "./apps/setup.js";
+import { getLog } from "./helpers/get-log.js";
+import { readCliOptions } from "./bin/read-cli-options.js";
+import { readEnvOptions } from "./bin/read-env-options.js";
+import { Server } from "./server/server.js";
+import { defaultApp } from "./apps/default.js";
+import { resolveAppFunction } from "./helpers/resolve-app-function.js";
+import { isProduction } from "./helpers/is-production.js";
+import { config as dotenvConfig } from "dotenv";
 
 type AdditionalOptions = {
-  env: Record<string, string | undefined>;
+  env?: NodeJS.ProcessEnv;
+  Octokit?: typeof ProbotOctokit;
+  log?: Logger;
 };
 
 /**
@@ -20,9 +24,9 @@ type AdditionalOptions = {
  */
 export async function run(
   appFnOrArgv: ApplicationFunction | string[],
-  additionalOptions?: AdditionalOptions
+  additionalOptions?: AdditionalOptions,
 ) {
-  require("dotenv").config();
+  dotenvConfig();
 
   const envOptions = readEnvOptions(additionalOptions?.env);
   const cliOptions = Array.isArray(appFnOrArgv)
@@ -34,6 +38,7 @@ export async function run(
     logLevel: level,
     logFormat,
     logLevelInString,
+    logMessageKey,
     sentryDsn,
 
     // server options
@@ -53,14 +58,13 @@ export async function run(
     args,
   } = { ...envOptions, ...cliOptions };
 
-  const logOptions: GetLogOptions = {
+  const log = getLog({
     level,
     logFormat,
     logLevelInString,
+    logMessageKey,
     sentryDsn,
-  };
-
-  const log = getLog(logOptions);
+  });
 
   const probotOptions: Options = {
     appId,
@@ -68,8 +72,10 @@ export async function run(
     redisConfig,
     secret,
     baseUrl,
-    log: log.child({ name: "probot" }),
+    log: additionalOptions?.log || log.child({ name: "probot" }),
+    Octokit: additionalOptions?.Octokit || undefined,
   };
+
   const serverOptions: ServerOptions = {
     host,
     port,
@@ -82,20 +88,34 @@ export async function run(
   let server: Server;
 
   if (!appId || !privateKey) {
-    if (process.env.NODE_ENV === "production") {
+    if (isProduction()) {
       if (!appId) {
         throw new Error(
           "App ID is missing, and is required to run in production mode. " +
-            "To resolve, ensure the APP_ID environment variable is set."
+            "To resolve, ensure the APP_ID environment variable is set.",
         );
       } else if (!privateKey) {
         throw new Error(
           "Certificate is missing, and is required to run in production mode. " +
-            "To resolve, ensure either the PRIVATE_KEY or PRIVATE_KEY_PATH environment variable is set and contains a valid certificate"
+            "To resolve, ensure either the PRIVATE_KEY or PRIVATE_KEY_PATH environment variable is set and contains a valid certificate",
         );
       }
     }
-    server = new Server(serverOptions);
+
+    // Workaround for setup (#1512)
+    // When probot is started for the first time, it gets into a setup mode
+    // where `appId` and `privateKey` are not present. The setup mode gets
+    // these credentials. In order to not throw an error, we set the values
+    // to anything, as the Probot instance is not used in setup it makes no
+    // difference anyway.
+    server = new Server({
+      ...serverOptions,
+      Probot: Probot.defaults({
+        ...probotOptions,
+        appId: 1,
+        privateKey: "dummy value for setup, see #1512",
+      }),
+    });
     await server.load(setupAppFactory(host, port));
     await server.start();
     return server;
@@ -104,19 +124,19 @@ export async function run(
   if (Array.isArray(appFnOrArgv)) {
     const pkg = await pkgConf("probot");
 
-    const combinedApps: ApplicationFunction = async (app) => {
+    const combinedApps: ApplicationFunction = async (_app) => {
       await server.load(defaultApp);
 
       if (Array.isArray(pkg.apps)) {
         for (const appPath of pkg.apps) {
-          const appFn = resolveAppFunction(appPath);
-          server.load(appFn);
+          const appFn = await resolveAppFunction(appPath);
+          await server.load(appFn);
         }
       }
 
       const [appPath] = args;
-      const appFn = resolveAppFunction(appPath);
-      server.load(appFn);
+      const appFn = await resolveAppFunction(appPath);
+      await server.load(appFn);
     };
 
     server = new Server(serverOptions);
